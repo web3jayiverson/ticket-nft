@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>测试合约Owner</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e293b;
+            color: #fff;
+            margin: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .section {
+            background: #334155;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+        }
+        .success { color: #4ade80; }
+        .error { color: #f87171; }
+        .info { color: #60a5fa; }
+        button {
+            background: #4f46e5;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        button:hover { background: #4338ca; }
+        #result {
+            white-space: pre-wrap;
+            word-break: break-all;
+            background: #0f172a;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        h1 { color: #fbbf24; margin-top: 0; }
+        h3 { color: #94a3b8; margin: 0 0 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 合约Owner测试工具</h1>
+
+        <div class="section">
+            <h3>合约信息</h3>
+            <p><span class="info">合约地址:</span> 0x98c6af4c16F492ECD21206f17Ace979CcF021f98</p>
+            <p><span class="info">网络:</span> Sepolia Testnet</p>
+        </div>
+
+        <div class="section">
+            <h3>操作</h3>
+            <button onclick="window.testApp.checkContract()">1. 检查合约是否存在</button><br>
+            <button onclick="window.testApp.checkOwner()">2. 读取Owner地址</button><br>
+            <button onclick="window.testApp.checkContractCode()">3. 检查合约代码</button><br>
+        </div>
+
+        <div class="section">
+            <h3>结果</h3>
+            <div id="result">点击按钮开始测试...</div>
+        </div>
+
+        <div class="section">
+            <h3>当前钱包</h3>
+            <div id="wallet">未连接</div>
+            <button onclick="window.testApp.connectWallet()" style="margin-top: 10px;">连接钱包</button>
+        </div>
+    </div>
+
+    <script>
+        window.testApp = {
+            CONTRACT_ADDRESS: '0x98c6af4c16F492ECD21206f17Ace979CcF021f98',
+            RPC_URL: 'https://eth-sepolia.g.alchemy.com/v2/demo',
+            provider: null,
+            signer: null,
+
+            init: function() {
+                try {
+                    console.log('ethers版本:', ethers.version);
+                    this.provider = new ethers.providers.JsonRpcProvider(this.RPC_URL);
+                    console.log('Provider创建成功');
+                    this.log('✅ 工具初始化成功', 'success');
+                } catch (error) {
+                    this.log('❌ 初始化失败: ' + error.message, 'error');
+                    console.error(error);
+                }
+            },
+
+            log: function(message, type = 'info') {
+                const result = document.getElementById('result');
+                const prefix = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+                result.innerHTML += `\n${prefix} ${message}`;
+                console.log(message);
+                // 自动滚动到底部
+                result.scrollTop = result.scrollHeight;
+            },
+
+            checkContract: async function() {
+                document.getElementById('result').innerHTML = '';
+                this.log('========== 检查合约 ==========', 'info');
+
+                try {
+                    const code = await this.provider.getCode(this.CONTRACT_ADDRESS);
+                    this.log(`合约代码长度: ${code.length} 字符`, 'info');
+
+                    if (code === '0x' || code.length === 2) {
+                        this.log('❌ 合约不存在于此地址！', 'error');
+                    } else {
+                        this.log('✅ 合约存在！', 'success');
+                        this.log(`合约代码预览: ${code.substring(0, 100)}...`, 'info');
+                    }
+                } catch (error) {
+                    this.log(`❌ 错误: ${error.message}`, 'error');
+                    console.error(error);
+                }
+            },
+
+            checkOwner: async function() {
+                document.getElementById('result').innerHTML = '';
+                this.log('========== 读取Owner ==========', 'info');
+
+                const abi = ["function owner() external view returns (address)"];
+
+                try {
+                    this.log('创建合约实例...', 'info');
+                    const contract = new ethers.Contract(this.CONTRACT_ADDRESS, abi, this.provider);
+
+                    this.log('调用owner()函数...', 'info');
+                    const ownerAddr = await contract.owner();
+                    this.log(`✅ Owner地址: ${ownerAddr}`, 'success');
+
+                    // 检查当前钱包
+                    if (this.signer) {
+                        const currentAddr = await this.signer.getAddress();
+                        this.log(`当前钱包: ${currentAddr}`, 'info');
+                        const isOwner = currentAddr.toLowerCase() === ownerAddr.toLowerCase();
+                        this.log(`${isOwner ? '✅' : '❌'} 是Owner: ${isOwner}`, isOwner ? 'success' : 'error');
+                    }
+                } catch (error) {
+                    this.log(`❌ 错误: ${error.message}`, 'error');
+                    this.log(`错误代码: ${error.code || 'N/A'}`, 'error');
+                    this.log(`错误名称: ${error.name || 'N/A'}`, 'error');
+                    console.error(error);
+                }
+            },
+
+            checkContractCode: async function() {
+                document.getElementById('result').innerHTML = '';
+                this.log('========== 检查合约代码和函数 ==========', 'info');
+
+                try {
+                    const code = await this.provider.getCode(this.CONTRACT_ADDRESS);
+                    this.log(`✅ 合约代码长度: ${code.length}`, 'success');
+
+                    // 尝试不同的函数名
+                    const functionsToTest = [
+                        { name: 'owner', desc: '标准owner' },
+                        { name: 'getOwner', desc: 'getOwner' },
+                        { name: 'admin', desc: 'admin' },
+                        { name: 'getAdmin', desc: 'getAdmin' },
+                        { name: 'contractOwner', desc: 'contractOwner' }
+                    ];
+
+                    for (const func of functionsToTest) {
+                        try {
+                            const testAbi = [`function ${func.name}() external view returns (address)`];
+                            const contract = new ethers.Contract(this.CONTRACT_ADDRESS, testAbi, this.provider);
+                            const result = await contract[func.name]();
+                            this.log(`✅ 函数 ${func.name}() 存在！返回: ${result}`, 'success');
+                        } catch (e) {
+                            this.log(`❌ 函数 ${func.name}() 不存在或失败: ${e.message.substring(0, 50)}`, 'error');
+                        }
+                    }
+                } catch (error) {
+                    this.log(`❌ 错误: ${error.message}`, 'error');
+                    console.error(error);
+                }
+            },
+
+            connectWallet: async function() {
+                if (typeof window.ethereum === 'undefined') {
+                    alert('请安装MetaMask！');
+                    return;
+                }
+
+                try {
+                    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    this.signer = await new ethers.providers.Web3Provider(window.ethereum).getSigner();
+                    const address = await this.signer.getAddress();
+                    document.getElementById('wallet').innerHTML = `<span class="success">✅ ${address}</span>`;
+                    this.log(`钱包已连接: ${address}`, 'success');
+                } catch (error) {
+                    this.log(`❌ 连接钱包失败: ${error.message}`, 'error');
+                }
+            }
+        };
+
+        // 等待页面和ethers库加载完成
+        window.addEventListener('load', function() {
+            console.log('页面加载完成');
+            console.log('ethers是否可用:', typeof ethers !== 'undefined');
+
+            if (typeof ethers === 'undefined') {
+                document.getElementById('result').innerHTML = '❌ ethers.js库加载失败，请刷新页面重试';
+            } else {
+                window.testApp.init();
+            }
+        });
+    </script>
+</body>
+</html>

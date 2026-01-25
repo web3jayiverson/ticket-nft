@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token 查询工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #4f46e5;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        button:hover {
+            background: #4338ca;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f9fafb;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .found {
+            color: green;
+            font-weight: bold;
+        }
+        .not-found {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Token 查询工具</h1>
+        <p>这个工具会查询你的所有 token ID</p>
+
+        <button id="connectBtn">连接钱包</button>
+        <button id="searchBtn" disabled>开始查询</button>
+        <button id="clearBtn">清空结果</button>
+
+        <div id="result"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <script>
+        const CONTRACT_ADDRESS = '0x98c6af4c16F492ECD21206f17Ace979CcF021f98';
+        const CONTRACT_ABI = [
+            "function balanceOf(address owner) external view returns (uint256)",
+            "function ownerOf(uint256 tokenId) external view returns (address)",
+            "function getTicketInfo(uint256 tokenId) external view returns (uint256 eventId, string eventName, string section, uint256 row, uint256 seat, bool isVerified, address owner)"
+        ];
+
+        let userAddress = null;
+        let provider = null;
+        let contract = null;
+
+        const resultDiv = document.getElementById('result');
+
+        function log(message, type = 'info') {
+            resultDiv.innerHTML += `<div class="${type}">${message}</div>`;
+            resultDiv.scrollTop = resultDiv.scrollHeight;
+        }
+
+        function clear() {
+            resultDiv.innerHTML = '';
+        }
+
+        async function connectWallet() {
+            try {
+                // 等待 MetaMask 加载
+                if (typeof window.ethereum === 'undefined') {
+                    log('❌ 未检测到 MetaMask，请确保：', 'not-found');
+                    log('1. MetaMask 扩展已安装', 'not-found');
+                    log('2. MetaMask 已解锁', 'not-found');
+                    log('3. 刷新页面重试', 'not-found');
+                    return;
+                }
+
+                log('正在连接 MetaMask...');
+
+                // 使用 window.ethereum.request 连接
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                userAddress = accounts[0];
+
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+
+                log(`✅ 已连接钱包: ${userAddress}`, 'found');
+                document.getElementById('searchBtn').disabled = false;
+            } catch (error) {
+                log(`❌ 连接失败: ${error.message}`, 'not-found');
+                log(`错误详情: ${JSON.stringify(error, null, 2)}`, 'not-found');
+            }
+        }
+
+        async function searchTokens() {
+            if (!userAddress) {
+                log('❌ 请先连接钱包', 'not-found');
+                return;
+            }
+
+            clear();
+            log('========== 开始查询 ==========');
+
+            try {
+                // 查询余额
+                const balance = await contract.balanceOf(userAddress);
+                log(`你的余额: ${balance.toString()} 张票`, 'found');
+
+                const balanceNum = Number(balance);
+                if (balanceNum === 0) {
+                    log('❌ 没有门票', 'not-found');
+                    return;
+                }
+
+                log(`开始查找 ${balanceNum} 张门票...`);
+
+                const foundTokens = [];
+
+                // 查询活动 0-5，每个活动前 200 个 token
+                for (let eventId = 0; eventId <= 5; eventId++) {
+                    log(`\n---------- 查询活动 ${eventId} ----------`);
+
+                    const startTokenId = eventId * 10000 + 1;
+                    const endTokenId = startTokenId + 199;
+
+                    log(`Token 范围: ${startTokenId} - ${endTokenId}`);
+
+                    const checkPromises = [];
+                    for (let tokenId = startTokenId; tokenId <= endTokenId; tokenId++) {
+                        checkPromises.push(
+                            contract.ownerOf(tokenId)
+                                .then(owner => {
+                                    if (owner.toLowerCase() === userAddress.toLowerCase()) {
+                                        return tokenId;
+                                    }
+                                    return null;
+                                })
+                                .catch(() => null)
+                        );
+                    }
+
+                    const results = await Promise.all(checkPromises);
+                    const eventTokens = results.filter(id => id !== null);
+
+                    if (eventTokens.length > 0) {
+                        log(`✅ 找到 ${eventTokens.length} 个 token: ${eventTokens.join(', ')}`, 'found');
+                        foundTokens.push(...eventTokens);
+                    } else {
+                        log(`活动 ${eventId} 没有找到 token`);
+                    }
+
+                    if (foundTokens.length >= balanceNum) {
+                        log(`✅ 已找到所有门票！`, 'found');
+                        break;
+                    }
+                }
+
+                if (foundTokens.length === 0) {
+                    log('❌ 没有找到任何 token', 'not-found');
+                } else {
+                    log(`\n========== 查询完成 ==========`);
+                    log(`总共找到 ${foundTokens.length} 个 token:`);
+                    log(foundTokens.join(', '), 'found');
+
+                    // 获取每个 token 的详细信息
+                    log(`\n========== 获取详细信息 ==========`);
+                    for (const tokenId of foundTokens) {
+                        try {
+                            const info = await contract.getTicketInfo(tokenId);
+                            log(`Token ${tokenId}:`, 'found');
+                            log(`  活动名称: ${info.eventName}`);
+                            log(`  座位: ${info.section}区 ${info.row}行${info.seat}座`);
+                            log(`  已验证: ${info.isVerified ? '是' : '否'}`);
+                        } catch (error) {
+                            log(`❌ Token ${tokenId} 获取信息失败: ${error.message}`, 'not-found');
+                        }
+                    }
+                }
+            } catch (error) {
+                log(`❌ 查询失败: ${error.message}`, 'not-found');
+            }
+        }
+
+        document.getElementById('connectBtn').addEventListener('click', connectWallet);
+        document.getElementById('searchBtn').addEventListener('click', searchTokens);
+        document.getElementById('clearBtn').addEventListener('click', clear);
+    </script>
+</body>
+</html>
